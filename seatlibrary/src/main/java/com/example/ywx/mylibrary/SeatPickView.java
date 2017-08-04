@@ -2,6 +2,7 @@ package com.example.ywx.mylibrary;
 
 import android.animation.ValueAnimator;
 import android.content.Context;
+import android.content.res.TypedArray;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -73,6 +74,8 @@ public class SeatPickView extends View implements ScaleGestureDetector.OnScaleGe
     private int maxSelectedCount;
     //选择到达最大座位数的回调接口
     private OnSelectedMaxListener onSelectedMaxListener;
+    //座位点击监听
+    private OnSelectListener onSelectListener;
     //已选择的座位列表
     private List<SeatInfo>selectedSeatList=new ArrayList<>();
     //座位号字体大小
@@ -89,13 +92,16 @@ public class SeatPickView extends View implements ScaleGestureDetector.OnScaleGe
     public SeatPickView(Context context, @Nullable AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
         //初始化
-        init(context);
+        init(context,attrs,defStyleAttr);
     }
 
     /**
      * 进行控件初始化
      */
-    private void init(Context context) {
+    private void init(Context context,AttributeSet attrs, int defStyleAttr) {
+        TypedArray ta=context.obtainStyledAttributes(attrs,R.styleable.SeatPickView);
+        //获取用户设置的最大选取的座位数,默认为5
+        maxSelectedCount=ta.getInt(R.styleable.SeatPickView_max_seat,5);
         matrix=new Matrix();
         //解析图片
         seatLock= BitmapFactory.decodeResource(getResources(),R.mipmap.seat_selected);
@@ -138,8 +144,6 @@ public class SeatPickView extends View implements ScaleGestureDetector.OnScaleGe
 
         //初始化选择的座位数为0
         selectedCount=0;
-        //默认最大能选择5个
-        maxSelectedCount=5;
 
         seatNumTextSize=75f;
         smallTextPaint=new Paint();
@@ -338,9 +342,9 @@ public class SeatPickView extends View implements ScaleGestureDetector.OnScaleGe
     @Override
     public boolean onSingleTapConfirmed(MotionEvent motionEvent) {
         //获取当前点击的列数
-        int clickX=(int)((-translateX+motionEvent.getX())/(seatWidth*scale+spaceX*scale));
+        int clickY=(int)((-translateX+motionEvent.getX())/(seatWidth*scale+spaceX*scale));
         //获取当前点击的行数
-        int clickY=(int)((-translateY+motionEvent.getY())/(seatHeight*scale+spaceY*scale));
+        int clickX=(int)((-translateY+motionEvent.getY())/(seatHeight*scale+spaceY*scale));
 
         //改变座位状态
         chooseSeat(clickX,clickY);
@@ -403,14 +407,30 @@ public class SeatPickView extends View implements ScaleGestureDetector.OnScaleGe
     private void chooseSeat(int x,int y){
         for(SeatInfo seat:seatList){
             //获取当前点击坐标的座位
-            if(seat.getColums()==x&&seat.getRow()==y&&seat.getSeatstatue()==0){
+            if(seat.getColums()==y&&seat.getRow()==x&&seat.getSeatstatue()==0){
                 //如果当前已经选中，则选择座位数减一，否则加一
                 if(seat.isChoose()){
-                    selectedSeatList.remove(selectedSeatList.size()-1);
+                    //遍历找到当前取消的座位和在已选座位列表中的位置并删除
+                    for(int i=0;i<selectedSeatList.size();i++){
+                        if(selectedSeatList.get(i).getColums()==y&&selectedSeatList.get(i).getRow()==x){
+                            //回调点击取消接口
+                            if(onSelectListener!=null){
+                                onSelectListener.onRemove(selectedSeatList.get(i));
+                            }
+                            selectedSeatList.remove(i);
+                            break;
+                        }
+                    }
                     selectedCount--;
                 }else {
                     selectedSeatList.add(seat);
                     selectedCount++;
+                    //点击当前座位将数量加一后如果不超过最大座位数就回调增加座位的点击回调
+                    if(selectedCount<=maxSelectedCount){
+                        if(onSelectListener!=null){
+                            onSelectListener.onSelect(seat);
+                        }
+                    }
                 }
                 //如果当前选中的座位数小于等于最大可选数量，就响应，否则不响应
                 if(selectedCount<=maxSelectedCount) {
@@ -447,5 +467,9 @@ public class SeatPickView extends View implements ScaleGestureDetector.OnScaleGe
 
     public List<SeatInfo> getSelectedSeatList() {
         return selectedSeatList;
+    }
+
+    public void setOnSelectListener(OnSelectListener onSelectListener) {
+        this.onSelectListener = onSelectListener;
     }
 }
