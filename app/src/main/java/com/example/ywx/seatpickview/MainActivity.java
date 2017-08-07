@@ -98,8 +98,8 @@ public class MainActivity extends AppCompatActivity {
             seatInfo.setChoose(false);
             list.add(seatInfo);
         }
-        for(int i=0;i<12;i++){
-            SeatInfo seatInfo=new SeatInfo();
+        for(int i=0;i<12;i++) {
+            SeatInfo seatInfo = new SeatInfo();
             seatInfo.setRow(9);
             seatInfo.setSeatstatue(0);
             seatInfo.setColums(i);
@@ -107,7 +107,7 @@ public class MainActivity extends AppCompatActivity {
             list.add(seatInfo);
         }
         pick.setSeatList(list);
-
+        pick.getSelectedSeatList();
         button.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {

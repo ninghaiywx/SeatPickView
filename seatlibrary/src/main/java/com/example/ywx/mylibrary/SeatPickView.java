@@ -10,8 +10,9 @@ import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.RectF;
-import android.support.annotation.Nullable;
+import android.os.Handler;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
@@ -34,6 +35,8 @@ public class SeatPickView extends View implements ScaleGestureDetector.OnScaleGe
     private static final int SEAT_STUDING=2;
     //座位暂时离开
     private static final int SEAT_LEAVE=3;
+    //长延时
+    private static final int DELAY_LONG=1000;
     //当前x方向移动距离
     float translateX ;
     //当前y方向移动距离
@@ -64,8 +67,8 @@ public class SeatPickView extends View implements ScaleGestureDetector.OnScaleGe
     private List<SeatInfo>seatList=new ArrayList<>();
     //行列的个数
     private int rowSize=0,columSize=0;
-    //绘制行列数的画笔以及背景画笔
-    private Paint textPaint,bcPaint,smallTextPaint;
+    //绘制行列数的画笔、背景画笔、缩略图矩形框画笔
+    private Paint textPaint,bcPaint,smallTextPaint,mapRectPiant;
     //记录每一行的座位数
     private int[] eachRow=new int[100];
     //当前选择的座位数
@@ -80,16 +83,28 @@ public class SeatPickView extends View implements ScaleGestureDetector.OnScaleGe
     private List<SeatInfo>selectedSeatList=new ArrayList<>();
     //座位号字体大小
     private float seatNumTextSize;
+    //缩略图的缩放比例
+    private float mapWidthScale,mapHeightScale;
+    //当前缩放比例下整个布局的大小
+    private float realWidth,realHeight;
+    //是否显示缩略图
+    private boolean isShowMap=false;
+    //计算缩略图关闭前手指点击次数
+    private int runInTime=0;
+    //是否是缩略图关闭后第一次点击
+    private boolean isFirstClick=true;
+    //允许超出的边界的范围
+    private float offset;
 
     public SeatPickView(Context context) {
         this(context,null);
     }
 
-    public SeatPickView(Context context, @Nullable AttributeSet attrs) {
+    public SeatPickView(Context context,  AttributeSet attrs) {
         this(context, attrs,0);
     }
 
-    public SeatPickView(Context context, @Nullable AttributeSet attrs, int defStyleAttr) {
+    public SeatPickView(Context context,  AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
         //初始化
         init(context,attrs,defStyleAttr);
@@ -114,6 +129,9 @@ public class SeatPickView extends View implements ScaleGestureDetector.OnScaleGe
         spaceX=100;
         spaceY=340;
 
+        //允许超出的边界范围
+        offset=250;
+
         //设置缩放监听器
         scaleGestureDetector=new ScaleGestureDetector(context,this);
         gestureDetector=new GestureDetector(context,this);
@@ -123,12 +141,12 @@ public class SeatPickView extends View implements ScaleGestureDetector.OnScaleGe
         scale=0.2f;
 
         //规定最大和最小缩放比例
-        maxScale=1.0f;
+        maxScale=0.8f;
         minScale=0.2f;
 
-        //设置默认移动距离为0
-        translateX=0;
-        translateY=0;
+        //设置默认移动距离为50
+        translateX=50;
+        translateY=50;
 
         //初始化画笔
         textPaint=new Paint();
@@ -151,6 +169,12 @@ public class SeatPickView extends View implements ScaleGestureDetector.OnScaleGe
         smallTextPaint.setTextSize(seatNumTextSize);
         smallTextPaint.setColor(Color.BLACK);
         textPaint.setStrokeWidth(1);
+
+        mapRectPiant=new Paint();
+        mapRectPiant.setAntiAlias(true);
+        mapRectPiant.setStyle(Paint.Style.STROKE);
+        mapRectPiant.setStrokeWidth(1);
+        mapRectPiant.setColor(Color.RED);
     }
 
     @Override
@@ -190,6 +214,95 @@ public class SeatPickView extends View implements ScaleGestureDetector.OnScaleGe
         //绘制列文本
         drawText(canvas);
 
+        //绘制缩略图
+        if(isShowMap) {
+            drawMap(canvas);
+        }
+    }
+
+    /**
+     * 绘制缩略图矩形框
+     * @param canvas
+     */
+    private void drawMapRect(Canvas canvas) {
+        //获取长宽比例中较小的
+        float mapScale=Math.min(mapWidthScale,mapHeightScale);
+        RectF rect=new RectF();
+        rect.top=-translateY*mapScale;
+        rect.left=-translateX*mapScale;
+        rect.bottom=rect.top+mHeight*mapScale;
+        rect.right=rect.left+mWidth*mapScale;
+        canvas.drawRect(rect,mapRectPiant);
+    }
+
+    /**
+     * 绘制缩略图
+     * @param canvas
+     */
+    private void drawMap(Canvas canvas) {
+        //定义缩略图的宽高都为控件高度的9分之4
+        int mapWidth=mWidth/3;
+        int mapHeight=mHeight/2;
+        //获得缩略图的缩放比例
+        mapWidthScale=mapWidth/realWidth;
+        mapHeightScale=mapHeight/realHeight;
+        //获取长宽比例中较小的，保持缩略图座位比例
+        float mapScale=Math.min(mapWidthScale,mapHeightScale);
+        //初始化背景矩形
+        RectF rect=new RectF();
+        rect.left=0;
+        rect.top=0;
+        rect.bottom=mapHeight;
+        rect.right=mapWidth;
+
+        canvas.drawRect(rect,bcPaint);
+
+        //与绘制座位一样只是缩放比例改变
+        Matrix tempMatrix=new Matrix();
+        if(seatList.size()!=0) {
+            //遍历座位数组，绘制座位
+            for (SeatInfo seat : seatList) {
+                float top = seat.getRow() * seatHeight * scale*mapScale + seat.getRow() * spaceY*scale*mapScale;
+                float left = seat.getColums() * seatWidth *scale* mapScale + seat.getColums() * spaceX*scale*mapScale;
+                tempMatrix.setTranslate(left, top);
+                //座位大小等于当前座位大小再乘上缩略图缩放比例
+                tempMatrix.postScale(scale*mapScale, scale*mapScale, left, top);
+                switch (seat.getSeatstatue()){
+                    case SEAT_EMPTY:
+                        if(!seat.isChoose()) {
+                            canvas.drawBitmap(seatEmpty, tempMatrix, null);
+                        }else {
+                            canvas.drawBitmap(seatChecked, tempMatrix, null);
+                        }
+                        break;
+                    case SEAT_SELECTED:
+                    case SEAT_STUDING:
+                        canvas.drawBitmap(seatLock,tempMatrix,null);
+                        break;
+                    case SEAT_LEAVE:
+                        canvas.drawBitmap(seatLeave,tempMatrix,null);
+                        break;
+
+                }
+            }
+        }
+
+
+        //绘制缩略图桌子
+        for(int i=0;i<rowSize;i++) {
+            float top = i * seatHeight * scale *mapScale + i * spaceY*scale*mapScale + seatHeight * scale*mapScale + spaceY*scale*mapScale / 6;
+            if(i%2==0) {
+                for (int j = 0; j <= Math.max(eachRow[i],eachRow[i+1]); j += 2) {
+                    float left = j * seatWidth * scale*mapScale + j * spaceX*scale*mapScale  + (seatWidth * scale*mapScale+spaceX*scale*mapScale) / 2;
+                    tempMatrix.setTranslate(left, top);
+                    tempMatrix.postScale(scale*mapScale, scale*mapScale, left, top);
+                    canvas.drawBitmap(table, tempMatrix, null);
+                }
+            }
+        }
+
+        //绘制缩略图矩形框
+        drawMapRect(canvas);
     }
 
     /**
@@ -199,9 +312,9 @@ public class SeatPickView extends View implements ScaleGestureDetector.OnScaleGe
     private void drawTable(Canvas canvas) {
         Matrix tempMatrix=new Matrix();
         for(int i=0;i<rowSize;i++) {
+            float top = i * seatHeight * scale + i * spaceY*scale + translateY + seatHeight * scale + spaceY*scale / 6;
             if(i%2==0) {
-                for (int j = 0; j < eachRow[i]; j += 2) {
-                    float top = i * seatHeight * scale + i * spaceY*scale + translateY + seatHeight * scale + spaceY*scale / 6;
+                for (int j = 0; j <=Math.max(eachRow[i],eachRow[i+1]); j += 2) {
                     float left = j * seatWidth * scale + j * spaceX*scale + translateX + (seatWidth * scale+spaceX*scale) / 2;
                     tempMatrix.setTranslate(left, top);
                     tempMatrix.postScale(scale, scale, left, top);
@@ -285,6 +398,9 @@ public class SeatPickView extends View implements ScaleGestureDetector.OnScaleGe
                 eachRow[i]=max;
             }
         }
+        //绘制完座位获取整个布局大小
+        realWidth=columSize*(seatWidth*scale+spaceX*scale);
+        realHeight=rowSize*(seatHeight*scale+spaceY*scale);
     }
 
     @Override
@@ -293,6 +409,9 @@ public class SeatPickView extends View implements ScaleGestureDetector.OnScaleGe
         //当缩放比例不超过最大并且不小于最小缩放比例，可以进行缩放
         if(scale*scaleFactor<=maxScale&&scale*scaleFactor>=minScale){
             scale=scale*scaleFactor;
+            //缩放后进行位置矫正
+            translateX-=(scaleFactor-1)*(-translateX);
+            translateY-=(scaleFactor-1)*(-translateY);
         }
         invalidate();
         return true;
@@ -306,8 +425,18 @@ public class SeatPickView extends View implements ScaleGestureDetector.OnScaleGe
     @Override
     public void onScaleEnd(ScaleGestureDetector scaleGestureDetector) {
         //进行缩放后如果超出了边界，回到边界
-        if(translateX<-(columSize*(seatWidth*scale+spaceX*scale)-mWidth)) {
-            ValueAnimator valueX = ValueAnimator.ofFloat(translateX, Math.min(0,-(columSize*(seatWidth*scale+spaceX*scale)-mWidth))).setDuration(600);
+        if(translateX<-(realWidth-mWidth)+offset*scale) {
+            ValueAnimator valueX = ValueAnimator.ofFloat(translateX, Math.min(0,-(realWidth-mWidth))).setDuration(500);
+            valueX.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+                @Override
+                public void onAnimationUpdate(ValueAnimator valueAnimator) {
+                    translateX= (float) valueAnimator.getAnimatedValue();
+                    invalidate();
+                }
+            });
+            valueX.start();
+        }else if(translateX>offset*scale){
+            ValueAnimator valueX = ValueAnimator.ofFloat(translateX, 0).setDuration(500);
             valueX.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
                 @Override
                 public void onAnimationUpdate(ValueAnimator valueAnimator) {
@@ -317,8 +446,18 @@ public class SeatPickView extends View implements ScaleGestureDetector.OnScaleGe
             });
             valueX.start();
         }
-        if(translateY<-(rowSize*(seatHeight*scale+spaceY*scale)-mHeight)) {
-            ValueAnimator valueY = ValueAnimator.ofFloat(translateY,Math.min(0,-(rowSize*(seatHeight*scale+spaceY*scale)-mHeight))).setDuration(500);
+        if(translateY<-(realHeight-mHeight+offset*scale)) {
+            ValueAnimator valueY = ValueAnimator.ofFloat(translateY,Math.min(0,-(realHeight-mHeight))).setDuration(500);
+            valueY.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+                @Override
+                public void onAnimationUpdate(ValueAnimator valueAnimator) {
+                    translateY = (float) valueAnimator.getAnimatedValue();
+                    invalidate();
+                }
+            });
+            valueY.start();
+        }else if(translateY>offset*scale){
+            ValueAnimator valueY = ValueAnimator.ofFloat(translateY,0).setDuration(500);
             valueY.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
                 @Override
                 public void onAnimationUpdate(ValueAnimator valueAnimator) {
@@ -332,6 +471,12 @@ public class SeatPickView extends View implements ScaleGestureDetector.OnScaleGe
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
+        runInTime++;
+        //如果完成一次点击并且是上次缩略图关闭后的第一次点击就开启延时关闭缩略图
+        if(runInTime==2&&isFirstClick) {
+            isFirstClick=false;
+            delayCloseMap(DELAY_LONG);
+        }
         if(gestureDetector.onTouchEvent(event)){
             return true;
         }
@@ -363,12 +508,14 @@ public class SeatPickView extends View implements ScaleGestureDetector.OnScaleGe
 
     @Override
     public boolean onDown(MotionEvent motionEvent) {
+        //手指触摸屏幕显示缩略图
+        isShowMap=true;
+        invalidate();
         return false;
     }
 
     @Override
     public void onShowPress(MotionEvent motionEvent) {
-
     }
 
     @Override
@@ -379,10 +526,12 @@ public class SeatPickView extends View implements ScaleGestureDetector.OnScaleGe
     @Override
     public boolean onScroll(MotionEvent motionEvent, MotionEvent motionEvent1, float v, float v1) {
         //边界判断
-        if(translateX-v<=0&&translateX-v>=-(columSize*(seatWidth*scale+spaceX*scale)-mWidth)){
+        if(translateX-v<=offset*scale&&translateX-v>=-(realWidth-mWidth+offset*scale)){
             translateX=translateX-v;
         }
-        if(translateY-v1<=0&&translateY-v1>=-(rowSize*(seatHeight*scale+spaceY*scale)-mHeight)){
+        Log.d("offset*scale",offset*scale+"");
+        Log.d("translateY",translateY+"");
+        if(translateY-v1<=offset*scale&&translateY-v1>=-(realHeight-mHeight+offset*scale)){
             translateY=translateY-v1;
         }
         invalidate();
@@ -391,7 +540,6 @@ public class SeatPickView extends View implements ScaleGestureDetector.OnScaleGe
 
     @Override
     public void onLongPress(MotionEvent motionEvent) {
-
     }
 
     @Override
@@ -406,7 +554,7 @@ public class SeatPickView extends View implements ScaleGestureDetector.OnScaleGe
 
     private void chooseSeat(int x,int y){
         for(SeatInfo seat:seatList){
-            //获取当前点击坐标的座位
+            //获取当前点击坐标的座位并且该座位是空闲状态
             if(seat.getColums()==y&&seat.getRow()==x&&seat.getSeatstatue()==0){
                 //如果当前已经选中，则选择座位数减一，否则加一
                 if(seat.isChoose()){
@@ -434,6 +582,7 @@ public class SeatPickView extends View implements ScaleGestureDetector.OnScaleGe
                 }
                 //如果当前选中的座位数小于等于最大可选数量，就响应，否则不响应
                 if(selectedCount<=maxSelectedCount) {
+                    //点击有效就显示缩略图并短延时关闭
                     seat.setChoose(!seat.isChoose());
                     invalidate();
                 }else {
@@ -471,5 +620,30 @@ public class SeatPickView extends View implements ScaleGestureDetector.OnScaleGe
 
     public void setOnSelectListener(OnSelectListener onSelectListener) {
         this.onSelectListener = onSelectListener;
+    }
+
+    /**
+     * 延迟关闭缩略图
+     */
+    private void delayCloseMap(final int time){
+        new Handler().postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                //如果当该关闭的时候当前点击次数超过一次，再延时
+                if(runInTime>2){
+                    runInTime=0;
+                    //再次延时
+                    postDelayed(this,time);
+                }
+                //如果当前点击小于等于一次了就执行关闭缩略图
+                else{
+                    runInTime=0;
+                    //设置为第一次点击方便下一次点击判断
+                    isFirstClick=true;
+                    isShowMap = false;
+                    invalidate();
+                }
+            }
+        },time);
     }
 }
