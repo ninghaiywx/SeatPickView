@@ -1,7 +1,6 @@
 # SeatPickView
 Grdle 引入
 <pre>
-Gradle
 compile 'me.ywx.SeatPickView:seatlibrary:1.0.6'
 </pre>
 
