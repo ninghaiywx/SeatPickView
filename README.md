@@ -1,12 +1,17 @@
 # SeatPickView
-Gradle 引入
+
+### 效果图
+由于模拟器不支持多点触控,所以没办法放大缩小,实际支持<br/>
+![](seatPickView.gif)
+
+### Gradle 引入
 <pre>
 compile 'me.ywx.SeatPickView:seatlibrary:1.0.7'
 </pre>
 
 
 
- xml引入
+### xml引入
  ```xml
  <com.example.ywx.mylibrary.SeatPickView
         app:max_seat="1"  //指定最大可选座位数量
@@ -15,8 +20,8 @@ compile 'me.ywx.SeatPickView:seatlibrary:1.0.7'
         android:layout_height="wrap_content"/>  //指定wap_content默认等于屏幕宽度
  ```
         
-        
- 基本用法
+        
+### 基本用法
   ```Java
     public class MainActivity extends AppCompatActivity {
     private SeatPickView pick;
@@ -41,7 +46,7 @@ compile 'me.ywx.SeatPickView:seatlibrary:1.0.7'
 ```
 
 
-绑定监听器
+### 绑定监听器
 ```java
         pick.setOnSelectedMaxListener(new OnSelectedMaxListener() {
             @Override
@@ -70,7 +75,7 @@ compile 'me.ywx.SeatPickView:seatlibrary:1.0.7'
         //ps:获取座位行列位置时都是从0开始，如1行1列，获取到的是0行0列
 ```
 
-SeatInfo类
+### SeatInfo类
 ```java
 
 public class SeatInfo {
